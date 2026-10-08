@@ -1,4 +1,4 @@
-﻿# 🚀 GenAI Projects:
+﻿# 🚀 GenAI Projects:--
 
 A curated collection of **Generative AI projects** exploring LLMs, Retrieval-Augmented Generation (RAG), AI agents, chatbots, and intelligent automation. This repository serves as a hands-on portfolio of practical GenAI implementations, experiments, and learnings.
 
