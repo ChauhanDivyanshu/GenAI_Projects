@@ -1,0 +1,26 @@
+# Python environment
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Environment variables (Crucial: Never upload API keys)
+.env
+
+# Database files
+*.db
+*.sqlite3
+
+# Media and Recording files (Prevents GitHub size limit errors)
+backend/static/recordings/*.mp4
+backend/static/recordings/*.wav
+backend/static/recordings/*.png
+backend/static/recordings/*.pdf
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+*.swp
