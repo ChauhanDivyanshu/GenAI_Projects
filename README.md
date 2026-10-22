@@ -1,79 +1,27 @@
-﻿# 🚀 GenAI Projects:--
+# AssetTrackerPro
 
-A curated collection of **Generative AI projects** exploring LLMs, Retrieval-Augmented Generation (RAG), AI agents, chatbots, and intelligent automation. This repository serves as a hands-on portfolio of practical GenAI implementations, experiments, and learnings.
+AssetTrackerPro records assets, generates offline QR payloads, and prints QR asset labels through the included `ZMPrintService`.
 
----
+## Run
 
-## 🎯 Repository Goals
+1. Install the packages from `requirements.txt`.
+2. Keep `ZMPrintService.exe`, `ZMPCL.dll`, `ZMPrintService.exe.config`, and `ZMPrintService.ini` together in the AssetTrackerPro application folder.
+3. Start `run_app.bat`. AssetTrackerPro starts the print service when it is not already listening.
+4. In **Settings**, confirm the service status and set the printer DPI and physical label width, height, and gap to match the media loaded in the printer.
+5. Use **Single Asset** or **Bulk Asset Issue** to enter asset details, save records, and print QR labels. Existing labels can be edited or reprinted from **History / Edit**.
 
-- Build practical applications powered by Generative AI.
-- Explore LLMs, prompt engineering, RAG, and AI agent workflows.
-- Experiment with AI frameworks, models, APIs, and deployment approaches.
-- Document project architecture, setup instructions, and key learnings.
+The QR code contains the full-name JSON fields `asset_id`, `asset_name`, `asset_code`, `issue_date`, `issuer_name`, `issued_to`, `department`, `location`, and `status`. MAC address, IP address, hardware ID, hostname, model, serial number, operating system, and manufacturer are optional and are only included when manually provided. Bulk import accepts CSV or Excel files; `asset_name` and `asset_code` are required. The CSV template is in `templates/bulk_template.csv`.
 
-## 🧠 What You'll Find
+The current roll label was measured at approximately **44 x 45 mm**. That is the default label size; the previous 101.6 x 101.6 mm default is automatically replaced when loading the old default configuration. Printer DPI remains 203 until confirmed from the printer specification; select the actual DPI in Settings because an incorrect value changes physical size. Settings includes other label presets and a custom-size option in millimeters. The label gap is configured separately. The QR is centered below a short header to avoid overflowing the small tag; its QR modules default to 3 printer dots. Fine X/Y offsets are available for printer-specific alignment. Save settings, calibrate the printer after changing the roll, then use **Print QR Alignment Test** before issuing assets. The ZM service must be configured to listen on the same host and port shown in Settings (default: `127.0.0.1:1808`).
 
-| Area              | Description                                                     |
-| ----------------- | --------------------------------------------------------------- |
-| LLM Applications  | Applications powered by large language models                   |
-| RAG Systems       | Context-aware question answering over custom documents and data |
-| AI Agents         | Tool-using and task-oriented AI workflows                       |
-| AI Chatbots       | Conversational applications for different use cases             |
-| AI Automation     | AI-powered workflows that reduce repetitive tasks               |
-| GenAI Experiments | Model integrations, prototypes, and technical explorations      |
+Thermal print darkness and alignment depend on the printer, media, printhead, and DPI. If the test is still pale, increase darkness one step at a time; if QR squares start merging, lower it again. Confirm the printer DPI and run its media calibration before adjusting alignment offsets.
 
-## 🛠️ Technologies
+The current printer integration is QR-only. It does not issue RFID read, write, or encode commands. Network RAW/ZPL and PCLE printing are not used. For consistent placement, load the label roll straight and run the printer's media calibration before the first print; AssetTrackerPro checks QR/text bounds and will refuse settings that place them outside the label.
 
-The technology stack may vary by project and can include:
+## Build the Windows app
 
-- **Languages:** Python, JavaScript / TypeScript
-- **AI & LLMs:** LLM APIs, open-source models, prompt engineering
-- **Frameworks:** LangChain, LangGraph, FastAPI
-- **Data & Retrieval:** Vector databases, embeddings, semantic search
-- **Tools & Platforms:** Git, Docker, and cloud services
+Run `build_exe.bat` from this directory. The PyInstaller bundle includes the ZMPrintService executable and its required companion files.
 
-> Each project may use a different subset of these technologies. Refer to its own README for exact requirements.
+## Tests
 
-## 📁 Repository Structure
-
-```text
-GenAI-Projects/
-├── project-1/
-│   └── README.md
-├── project-2/
-│   └── README.md
-├── project-3/
-│   └── README.md
-└── README.md
-```
-
-_Replace the sample project folders above with the actual projects as you add them._
-
-## ⚡ Getting Started
-
-1. Browse the project folders in this repository.
-2. Open the README inside the project you want to explore.
-3. Follow that project's setup and execution instructions.
-4. Configure any required environment variables or API keys locally.
-
-**Never commit API keys, passwords, tokens, or other secrets.** Use a `.env` file and add it to `.gitignore`.
-
-## 📌 Projects
-
-Projects will be added and documented here as the repository grows.
-
-| Project     | Description                         | Status         |
-| ----------- | ----------------------------------- | -------------- |
-| Coming soon | More GenAI projects are in progress | 🚧 In progress |
-
-## 🤝 Contributions
-
-Suggestions, improvements, and constructive feedback are welcome. If you'd like to contribute, open an issue or submit a pull request with a clear description of your changes.
-
-## 📄 License
-
-No license has been specified yet. Unless a license is added, all rights remain with the repository owner.
-
----
-
-⭐ If you find this repository useful, consider giving it a star!
+Run `python -m unittest discover -s tests` from this directory.
