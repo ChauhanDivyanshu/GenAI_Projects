@@ -1,0 +1,2 @@
+asset_id,asset_name,asset_code,issue_date,issuer_name,issued_to,department,location,status,mac_address,ip_address,hardware_id,hostname,model,serial_number,os,manufacturer
+AST001,Laptop,LAP001,2026-10-20,Rahul Sharma,Manish Tiwari,IT,Head Office,Issued,,,,,,,,

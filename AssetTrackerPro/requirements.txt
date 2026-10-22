@@ -1,0 +1,9 @@
+﻿streamlit==1.32.0
+pandas==2.2.0
+requests==2.31.0
+qrcode==7.4.2
+Pillow==10.2.0
+openpyxl==3.1.2
+wmi==1.5.1
+pywin32==306
+pyinstaller==6.4.0
