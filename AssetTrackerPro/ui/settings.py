@@ -10,6 +10,16 @@ from core.printer_service import (
 )
 
 LABEL_SIZE_PRESETS = {
+    "100 × 25 mm": (100, 25),
+    "80 × 32 mm": (80, 32),
+    "80 × 25 mm": (80, 25),
+    "50 × 32 mm": (50, 32),
+    "50 × 25 mm": (50, 25),
+    "50 × 20 mm": (50, 20),
+    "45 × 45 mm": (45, 45),
+    "45 × 20 mm": (45, 20),
+    "38 × 25 mm": (38, 25),
+    "30 × 15 mm": (30, 15),
     "4.4 × 4.5 cm — measured current roll (44 × 45 mm)": (44, 45),
     "4 × 3 in (101.6 × 76.2 mm)": (101.6, 76.2),
     "4 × 2 in (101.6 × 50.8 mm)": (101.6, 50.8),
@@ -100,7 +110,7 @@ def render():
             "Label/tag size",
             list(LABEL_SIZE_PRESETS),
             index=list(LABEL_SIZE_PRESETS).index(_get_size_preset(cfg)),
-            help="Choose the physical size of one label. Current roll was measured at about 44 × 45 mm.",
+            help="Choose the physical size of one label. Width is across the roll; length is along the feed direction.",
         )
         selected_size = LABEL_SIZE_PRESETS[size_choice]
         if selected_size is None:
@@ -166,7 +176,7 @@ def render():
             min_value=1,
             max_value=10,
             value=int(cfg["qr_module_size"]),
-            help="Module size is measured in printer dots. Default 3 keeps the QR compact on the measured 44 × 45 mm tag.",
+            help="Module size is measured in printer dots. Wide labels automatically reduce it only as much as needed to fit a scannable QR.",
         )
         st.markdown("**Fine alignment (mm)**")
         offset_col1, offset_col2 = st.columns(2)
@@ -222,5 +232,10 @@ def render():
         "Width is across the roll and length is along the roll movement. Label gap is "
         "the blank space between consecutive tags. Incorrect printer DPI can change the "
         "physical print size. Run printer media calibration after changing the roll."
+    )
+    st.caption(
+        "If the print drifts onto another label or into the gap, confirm the printer DPI "
+        "and media gap, then run the printer's label/media calibration before adjusting "
+        "the fine X/Y offsets."
     )
     st.caption("Save changed settings before printing the alignment test.")

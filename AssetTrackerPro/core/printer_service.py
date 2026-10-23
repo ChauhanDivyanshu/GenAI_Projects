@@ -29,6 +29,9 @@ DEFAULT_CONFIG = {
     "print_timeout_ms": 18000,
     "zm_service_path": "",
 }
+BULK_PRINT_DELAY_SECONDS = 1.5
+PRINTER_RESUME_TIMEOUT_SECONDS = 120
+PRINTER_STATUS_POLL_SECONDS = 1
 
 
 def _app_directories():
@@ -234,18 +237,110 @@ def _build_print_commands(qr_payload, emp_name, emp_id, config):
     qr.make(fit=True)
     qr_side_dots = (qr.modules_count + 8) * module_size
 
+    decoded = {}
+    try:
+        candidate = json.loads(qr_text)
+        if isinstance(candidate, dict):
+            decoded = candidate
+    except json.JSONDecodeError:
+        pass
+    asset_name = decoded.get("asset_name", decoded.get("md", emp_name))
+    asset_code = decoded.get("asset_code", decoded.get("sn", ""))
+    asset_id = (
+        decoded.get("asset_id")
+        or decoded.get("assetId")
+        or decoded.get("emp_id")
+        or decoded.get("ei")
+        or emp_id
+    )
+    title_text = f"{asset_name} - {asset_code}".strip(" -")
+    title_text = _safe_label_text(title_text)
+    asset_id_text = _safe_label_text(f"Asset ID: {asset_id}")
+    company_text = _safe_label_text(config["company_name"])
+
     width_dots = _dots(label_width, dpi)
     height_dots = _dots(label_height, dpi)
     gap_dots = _dots(gap, dpi)
     margin = _dots(2, dpi)
     offset_x = _dots(config.get("alignment_x_mm", 0), dpi)
     offset_y = _dots(config.get("alignment_y_mm", 0), dpi)
-    qr_x = (width_dots - qr_side_dots) // 2 + offset_x
-    header_height = _dots(9, dpi)
-    available_qr_height = height_dots - margin - header_height
-    qr_y = header_height + max(
-        0, (available_qr_height - qr_side_dots) // 2
-    ) + offset_y
+    is_wide_label = width_dots >= height_dots * 1.5
+    text_rows = []
+    if is_wide_label:
+        max_qr_side = min(width_dots, height_dots) - margin * 2
+        module_size = min(module_size, max_qr_side // (qr.modules_count + 8))
+        if module_size < 2:
+            raise ValueError(
+                "This QR payload does not fit a wide label at a scannable size. "
+                "Use a larger label or shorten the asset details."
+            )
+        qr_side_dots = (qr.modules_count + 8) * module_size
+        qr_x = margin
+        qr_y = (height_dots - qr_side_dots) // 2
+
+        text_left = qr_x + qr_side_dots + margin
+        text_width = width_dots - margin - text_left
+        lines = []
+        if company_text:
+            lines.append((company_text, 20))
+        if title_text:
+            lines.append((title_text, 20))
+        if asset_id_text:
+            lines.append((asset_id_text, 18))
+
+        fitted_lines = [
+            (*_fit_label_text(text, preferred_size, text_width), text_left)
+            for text, preferred_size in lines
+        ]
+        text_gap = max(1, margin // 2)
+        text_height = sum(font_size for _, font_size, _ in fitted_lines)
+        text_height += text_gap * max(0, len(fitted_lines) - 1)
+        text_top = max(margin, (height_dots - text_height) // 2)
+        for text, font_size, text_x in fitted_lines:
+            text_rows.append((text_top, font_size, text, text_x))
+            text_top += font_size + text_gap
+    else:
+        qr_x = (width_dots - qr_side_dots) // 2
+        header_height = _dots(9, dpi)
+        footer_lines = []
+        if title_text:
+            footer_lines.append((title_text, 20))
+        if asset_id_text:
+            footer_lines.append((asset_id_text, 18))
+        fitted_footer = [
+            (*_fit_label_text(text, preferred_size, width_dots - margin * 2), None)
+            for text, preferred_size in footer_lines
+        ]
+        text_gap = max(1, margin // 2)
+        footer_height = sum(font_size for _, font_size, _ in fitted_footer)
+        footer_height += text_gap * max(0, len(fitted_footer) - 1)
+        footer_top = height_dots - margin - footer_height
+        qr_area_top = max(header_height, margin)
+        qr_area_bottom = footer_top - margin
+        available_qr_height = qr_area_bottom - qr_area_top
+        max_qr_side = min(width_dots - margin * 2, available_qr_height)
+        module_size = min(module_size, max_qr_side // (qr.modules_count + 8))
+        if module_size < 2:
+            raise ValueError(
+                "This QR payload and label size do not leave enough room for a "
+                "scannable QR and its printed asset details. Use a larger label."
+            )
+        qr_side_dots = (qr.modules_count + 8) * module_size
+        qr_x = (width_dots - qr_side_dots) // 2
+        qr_y = qr_area_top + max(0, (available_qr_height - qr_side_dots) // 2)
+        if company_text:
+            company, company_size = _fit_label_text(
+                company_text, 26, width_dots - margin * 2
+            )
+            text_rows.append(
+                (_dots(2.5, dpi), company_size, company, None)
+            )
+        text_top = footer_top
+        for text, font_size, text_x in fitted_footer:
+            text_rows.append((text_top, font_size, text, text_x))
+            text_top += font_size + text_gap
+    qr_x += offset_x
+    qr_y += offset_y
 
     if qr_side_dots + margin * 2 > min(width_dots, height_dots):
         raise ValueError(
@@ -263,29 +358,6 @@ def _build_print_commands(qr_payload, emp_name, emp_id, config):
             "Reset the X/Y alignment offsets or use a larger label."
         )
 
-    decoded = {}
-    try:
-        candidate = json.loads(qr_text)
-        if isinstance(candidate, dict):
-            decoded = candidate
-    except json.JSONDecodeError:
-        pass
-
-    asset_name = decoded.get("asset_name", decoded.get("md", emp_name))
-    asset_code = decoded.get("asset_code", decoded.get("sn", emp_id))
-    title_text = f"{asset_name} - {asset_code}".strip(" -")
-
-    max_text_width = width_dots - margin * 2
-    text_rows = []
-    company, company_size = _fit_label_text(
-        config["company_name"], 26, max_text_width
-    )
-    company_y = 2.5
-    text_rows.append((company_y, company_size, company))
-    title, title_size = _fit_label_text(title_text, 22, max_text_width)
-    title_y = (height_dots - margin - title_size) * 25.4 / dpi
-    text_rows.append((title_y, title_size, title))
-
     commands = [
         "ZM_ClearBuffer",
         f"ZM_SetPrintSpeed|{speed}",
@@ -297,11 +369,21 @@ def _build_print_commands(qr_payload, emp_name, emp_id, config):
             f"|0|0|0|{module_size}|4|0|8|{qr_text}"
         ),
     ]
-    for index, (y_mm, font_size, text) in enumerate(text_rows):
+    for index, (y_coord, font_size, text, text_left) in enumerate(text_rows):
         if text:
-            y = _dots(y_mm, dpi) + offset_y
-            text_x = _centered_text_x(text, font_size, width_dots, margin) + offset_x
+            y = y_coord + offset_y
             estimated_width = int(len(text) * font_size * 0.64 + 0.5)
+            text_x = (
+                text_left
+                + offset_x
+                + max(
+                    0,
+                    (width_dots - margin - text_left - estimated_width) // 2,
+                )
+                if text_left is not None
+                else _centered_text_x(text, font_size, width_dots, margin)
+                + offset_x
+            )
             if (
                 y < margin
                 or y + font_size > height_dots - margin
@@ -452,70 +534,136 @@ def _wait_for_message(connection, timeout, prefix):
     return None
 
 
+def _printer_status_message(status_code):
+    messages = {
+        "82": "Printer ribbon/carbon belt error.",
+        "83": "Printer label/paper error.",
+        "88": (
+            "Printer is paused. Press the printer's Pause button to resume "
+            "printing."
+        ),
+        "-1007": "Printer USB port is unavailable.",
+        "-103": (
+            "Printer status is unavailable (code -103). Check the printer's "
+            "USB connection and power, then restart ZMPrintService."
+        ),
+    }
+    return messages.get(
+        status_code, f"Printer status is abnormal (code {status_code})."
+    )
+
+
+def _query_printer_status(connection, timeout):
+    connection.send_text("ZM_GetPrinterStatus_USB|500")
+    status = _wait_for_message(
+        connection, min(timeout, 5), "PrinterStatus_USB:"
+    )
+    if status is None:
+        return None, "ZMPrintService did not return the USB printer status."
+    status_code = status.partition(":")[2].strip()
+    if status_code != "0":
+        return status_code, _printer_status_message(status_code)
+    return status_code, "Printer is ready."
+
+
+def _wait_until_printer_ready(
+    connection,
+    timeout,
+    progress_callback=None,
+    job_number=None,
+    completed=0,
+    total=0,
+):
+    deadline = time.monotonic() + PRINTER_RESUME_TIMEOUT_SECONDS
+    while True:
+        status_code, message = _query_printer_status(connection, timeout)
+        if status_code == "0":
+            return True, "Printer is ready."
+        if status_code != "88":
+            return False, message
+        if time.monotonic() >= deadline:
+            return False, (
+                f"{message} Waited {PRINTER_RESUME_TIMEOUT_SECONDS} seconds "
+                "without a resume signal."
+            )
+        if progress_callback:
+            progress_callback(
+                completed,
+                total,
+                (
+                    f"Printer paused at {job_number}. Press the printer's "
+                    "Pause button; printing will continue automatically "
+                    "when it is ready."
+                ),
+            )
+        time.sleep(PRINTER_STATUS_POLL_SECONDS)
+
+
+def _open_zm_printer(connection, timeout):
+    connection.send_text("OpenPort|255")
+    opened = _wait_for_message(connection, min(timeout, 5), "OpenPort:")
+    if opened is None or not opened.endswith(":0"):
+        return False, (
+            "ZMPrintService could not open the USB printer "
+            f"({opened or 'no response'}). Check the printer connection."
+        )
+
+    status_code, message = _query_printer_status(connection, timeout)
+    if status_code != "0":
+        return False, message
+    return True, "Printer is ready."
+
+
+def _print_label_on_connection(connection, qr_payload, emp_name, emp_id, config, timeout):
+    commands = _build_print_commands(qr_payload, emp_name, emp_id, config)
+    for command in commands:
+        connection.send_text(command)
+    connection.send_text("ZM_PrintLabel|1|1")
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            message = connection.receive_text(
+                max(0.01, deadline - time.monotonic())
+            )
+        except socket.timeout:
+            break
+        if message.startswith("Error:"):
+            return False, f"ZMPrintService rejected a print command: {message}"
+        lowered = message.lower()
+        if (
+            "zm_printlabel_complete:" in lowered
+            or "print finished" in lowered
+            or "print complete" in lowered
+            or "打印完成" in message
+        ):
+            return True, "QR label printed successfully via ZMPrintService."
+    return False, "ZMPrintService did not confirm that the QR label printed."
+
+
 def print_via_zm_service(qr_payload, emp_name, emp_id, config):
     """Print one QR asset label using ZMPrintService's documented WebSocket API."""
     timeout = max(1, int(config["print_timeout_ms"])) / 1000.0
-    host = config["ws_host"]
-    port = int(config["ws_port"])
+    connection = None
     try:
-        commands = _build_print_commands(qr_payload, emp_name, emp_id, config)
-        connection = _connect_websocket(host, port, timeout)
-        try:
-            connection.send_text("OpenPort|255")
-            opened = _wait_for_message(connection, min(timeout, 5), "OpenPort:")
-            if opened is None or not opened.endswith(":0"):
-                return False, (
-                    f"ZMPrintService could not open the USB printer "
-                    f"({opened or 'no response'}). Check the printer connection."
-                )
-
-            connection.send_text("ZM_GetPrinterStatus_USB|500")
-            status = _wait_for_message(connection, min(timeout, 5), "PrinterStatus_USB:")
-            if status is None:
-                return False, "ZMPrintService did not return the USB printer status."
-            status_code = status.partition(":")[2].strip()
-            if status_code != "0":
-                messages = {
-                    "82": "Printer ribbon/carbon belt error.",
-                    "83": "Printer label/paper error.",
-                    "88": "Printer is paused.",
-                    "-1007": "Printer USB port is unavailable.",
-                }
-                return False, messages.get(
-                    status_code, f"Printer status is abnormal (code {status_code})."
-                )
-
-            for command in commands:
-                connection.send_text(command)
-            connection.send_text("ZM_PrintLabel|1|1")
-
-            deadline = time.monotonic() + timeout
-            while time.monotonic() < deadline:
-                try:
-                    message = connection.receive_text(
-                        max(0.01, deadline - time.monotonic())
-                    )
-                except socket.timeout:
-                    break
-                if message.startswith("Error:"):
-                    return False, f"ZMPrintService rejected a print command: {message}"
-                lowered = message.lower()
-                if (
-                    "zm_printlabel_complete:" in lowered
-                    or "print finished" in lowered
-                    or "print complete" in lowered
-                    or "打印完成" in message
-                ):
-                    return True, "QR label printed successfully via ZMPrintService."
-            return False, "ZMPrintService did not confirm that the QR label printed."
-        finally:
+        connection = _connect_websocket(
+            config["ws_host"], int(config["ws_port"]), timeout
+        )
+        opened, message = _open_zm_printer(connection, timeout)
+        if not opened:
+            return False, message
+        return _print_label_on_connection(
+            connection, qr_payload, emp_name, emp_id, config, timeout
+        )
+    except (OSError, RuntimeError, TypeError, ValueError, ConnectionError) as error:
+        return False, f"ZMPrintService error: {error}"
+    finally:
+        if connection is not None:
             try:
                 connection.send_text("ClosePort")
             except OSError:
                 pass
             connection.sock.close()
-    except (OSError, RuntimeError, TypeError, ValueError, ConnectionError) as error:
-        return False, f"ZMPrintService error: {error}"
 
 
 def print_asset_label(qr_payload, emp_name, emp_id):
@@ -529,20 +677,136 @@ def print_asset_label(qr_payload, emp_name, emp_id):
     return print_via_zm_service(qr_payload, emp_name, emp_id, config)
 
 
-def send_multiple_asset_labels(jobs):
+def send_multiple_asset_labels(jobs, progress_callback=None):
+    """Print a batch sequentially, allowing time for the printer to feed labels."""
     results = {"total": len(jobs), "success": 0, "failed": 0, "errors": []}
-    for index, job in enumerate(jobs):
-        try:
-            ok, message = print_asset_label(
-                job["qr_payload"], job["emp_name"], job["emp_id"]
+    if not jobs:
+        return results
+
+    def record_failure(job, message):
+        results["failed"] += 1
+        emp_id = (
+            job.get("emp_id", "Unknown ID")
+            if isinstance(job, dict)
+            else "Unknown ID"
+        )
+        results["errors"].append(f"{emp_id}: {message}")
+
+    try:
+        config = load_config()
+        host = config["ws_host"]
+        port = int(config["ws_port"])
+        timeout = max(1, int(config["print_timeout_ms"])) / 1000.0
+    except (KeyError, OSError, TypeError, ValueError) as error:
+        for job in jobs:
+            record_failure(job, f"Invalid printer configuration: {error}")
+        return results
+
+    if not is_zm_service_up(host, port):
+        started, message = launch_zm_service()
+        if not started:
+            for job in jobs:
+                record_failure(job, message)
+            return results
+
+    connection = None
+    try:
+        connection = _connect_websocket(host, port, timeout)
+        opened, message = _open_zm_printer(connection, timeout)
+        if not opened:
+            for job in jobs:
+                record_failure(job, message)
+            return results
+
+        for index, job in enumerate(jobs):
+            if not isinstance(job, dict):
+                record_failure(job, "Invalid print job: expected an object.")
+                continue
+            try:
+                commands = _build_print_commands(
+                    job["qr_payload"],
+                    job["emp_name"],
+                    job["emp_id"],
+                    config,
+                )
+            except (KeyError, TypeError, ValueError) as error:
+                record_failure(job, f"Invalid print job: {error}")
+                continue
+            if index:
+                time.sleep(BULK_PRINT_DELAY_SECONDS)
+            ready, message = _wait_until_printer_ready(
+                connection,
+                timeout,
+                progress_callback,
+                job["emp_id"],
+                results["success"],
+                results["total"],
             )
-        except (KeyError, TypeError, ValueError) as error:
-            ok, message = False, f"Invalid print job: {error}"
-        if ok:
-            results["success"] += 1
-        else:
-            results["failed"] += 1
-            results["errors"].append(f"{job.get('emp_id', 'Unknown ID')}: {message}")
-        if index < len(jobs) - 1:
-            time.sleep(0.5)
+            if not ready:
+                record_failure(job, message)
+                for pending_job in jobs[index + 1 :]:
+                    record_failure(
+                        pending_job,
+                        "Not attempted because the printer was not ready: "
+                        f"{message}",
+                    )
+                break
+
+            ok, message = _print_label_on_connection(
+                connection,
+                job["qr_payload"],
+                job["emp_name"],
+                job["emp_id"],
+                config,
+                timeout,
+            )
+            if not ok and "paused" in message.lower():
+                ready, resume_message = _wait_until_printer_ready(
+                    connection,
+                    timeout,
+                    progress_callback,
+                    job["emp_id"],
+                    results["success"],
+                    results["total"],
+                )
+                if ready:
+                    ok, message = _print_label_on_connection(
+                        connection,
+                        job["qr_payload"],
+                        job["emp_name"],
+                        job["emp_id"],
+                        config,
+                        timeout,
+                    )
+                else:
+                    message = resume_message
+            if ok:
+                results["success"] += 1
+                if progress_callback:
+                    progress_callback(
+                        results["success"],
+                        results["total"],
+                        f"Printed {results['success']}/{results['total']}",
+                    )
+            else:
+                record_failure(job, message)
+                for pending_job in jobs[index + 1 :]:
+                    record_failure(
+                        pending_job,
+                        "Not attempted because the previous label was not "
+                        f"confirmed: {message}",
+                    )
+                break
+    except (OSError, RuntimeError, TypeError, ValueError, ConnectionError) as error:
+        remaining = results["total"] - results["success"] - results["failed"]
+        message = f"ZMPrintService error: {error}"
+        for job in jobs[-remaining:]:
+            record_failure(job, message)
+    finally:
+        if connection is not None:
+            try:
+                connection.send_text("ClosePort")
+            except OSError:
+                pass
+            connection.sock.close()
     return results

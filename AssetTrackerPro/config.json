@@ -1,17 +1,17 @@
-﻿{
+{
   "ws_host": "127.0.0.1",
   "ws_port": 1808,
-  "dpi": 203,
-  "label_width_mm": 44,
+  "dpi": 208,
+  "label_width_mm": 45,
   "label_height_mm": 45,
-  "label_gap_mm": 2,
+  "label_gap_mm": 0.2,
   "print_speed": 2,
-  "print_darkness": 14,
-  "qr_module_size": 3,
-  "alignment_x_mm": 0,
-  "alignment_y_mm": 0,
-  "company_name": "Infosware IT Assets",
-  "default_issuer": "IT Admin",
+  "print_darkness": 18,
+  "qr_module_size": 4,
+  "alignment_x_mm": 0.0,
+  "alignment_y_mm": 0.0,
+  "company_name": "",
+  "default_issuer": "Thinkbiotic ",
   "print_timeout_ms": 18000,
   "zm_service_path": ""
 }

@@ -1,5 +1,6 @@
 """Create and print assets in bulk from CSV or Excel files."""
 
+import io
 import json
 import sqlite3
 from datetime import date
@@ -94,11 +95,22 @@ def render():
                 }
             ]
         )
+        excel_template = io.BytesIO()
+        with pd.ExcelWriter(excel_template, engine="openpyxl") as writer:
+            sample.to_excel(
+                writer, index=False, sheet_name="asset_bulk_template"
+            )
         st.download_button(
             "Download CSV Template",
             sample.to_csv(index=False).encode("utf-8"),
             "asset_bulk_template.csv",
             "text/csv",
+        )
+        st.download_button(
+            "Download Excel Template",
+            excel_template.getvalue(),
+            "asset_bulk_template.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
     uploaded = st.file_uploader("Upload CSV / Excel", type=["csv", "xlsx"])
@@ -190,8 +202,14 @@ def render():
             text=f"Prepared {index + 1}/{len(frame)}",
         )
 
+    print_progress = st.progress(0, text="Starting printer...")
+
+    def update_print_progress(completed, total, message):
+        fraction = completed / total if total else 0
+        print_progress.progress(fraction, text=message)
+
     with st.spinner("Printing asset labels..."):
-        summary = send_multiple_asset_labels(jobs)
+        summary = send_multiple_asset_labels(jobs, update_print_progress)
     try:
         save_bulk_issuances(records)
     except (sqlite3.Error, OSError, TypeError, ValueError) as error:
@@ -206,6 +224,11 @@ def render():
         f"Printed: {summary['success']} | Failed: {summary['failed']} | "
         f"Saved: {len(records)}"
     )
+    if summary["failed"]:
+        st.warning(
+            "The printer did not confirm every label. Check the printer status "
+            "and use the error list below before starting another batch."
+        )
     if summary["errors"]:
         with st.expander("View print errors"):
             for error in summary["errors"]:
